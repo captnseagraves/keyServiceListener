@@ -1,6 +1,7 @@
 import { ethers } from "ethers";
 import dotenv from 'dotenv';
 import pgPromise from 'pg-promise';
+import { submitUserOperation } from "./submitTransaction";
 
 dotenv.config();
 
@@ -15,12 +16,20 @@ const provider = new ethers.AlchemyProvider("optimism-sepolia", ALCHEMY_PROJECT_
 const pgp = pgPromise();
 const db = pgp(process.env.DATABASE_URL!);
 
-const contractAddress = "0x117DA503d0C065A99C9cc640d963Bbd7081A0beb";
+const contractAddress = "0x4DE3Fbb6dF50A7e6dBEEF948dFFC1E38bECeB72C";
 const abi = [
-    "event KeyServiceActionRequest(address indexed sender, (address sender, uint256 nonce, bytes initCode, bytes callData, uint256 callGasLimit, uint256 verificationGasLimit, uint256 preVerificationGas, uint256 maxFeePerGas, uint256 maxPriorityFeePerGas, bytes paymasterAndData, bytes signature) userOp)"
+    "event SignetActionRequest(address indexed sender, (address sender, uint256 nonce, bytes initCode, bytes callData, uint256 callGasLimit, uint256 verificationGasLimit, uint256 preVerificationGas, uint256 maxFeePerGas, uint256 maxPriorityFeePerGas, bytes paymasterAndData, bytes signature) userOp)"
 ];
 
 const contract = new ethers.Contract(contractAddress, abi, provider);
+
+const ISignetSmartWalletABI = [
+    "function deploymentFactoryAddress() view returns (address)"
+];
+
+let validFactories: Set<string> = new Set([
+    "0x6813Eb9362372EEF6200f3b1dbC3f819671cBA69" // Initial valid factory address
+]);
 
 async function processEvent(event: ethers.EventLog | ethers.Log) {
     let sender: string;
@@ -39,7 +48,20 @@ async function processEvent(event: ethers.EventLog | ethers.Log) {
         }
     }
 
-    console.log(`KeyServiceActionRequest detected: ${sender}`);
+    console.log(`SignetActionRequest detected: ${sender}`);
+
+    // Create a contract instance for the ISignetSmartWallet
+    const walletContract = new ethers.Contract(sender, ISignetSmartWalletABI, provider);
+    let factoryAddress: string;
+
+    try {
+        // Call the deploymentFactoryAddress function
+        factoryAddress = await walletContract.deploymentFactoryAddress();
+    } catch (error) {
+        console.error(`Error fetching deployment factory address for ${sender}:`, error);
+        throw error;
+    }
+
 
     // Convert BigInt values to strings
     const serializedUserOp = JSON.stringify(userOp, (key, value) =>
@@ -53,6 +75,9 @@ async function processEvent(event: ethers.EventLog | ethers.Log) {
             ON CONFLICT (transaction_hash, block_number) DO NOTHING
         `, [sender, serializedUserOp, event.transactionHash, event.blockNumber]);
         console.log("Event processed");
+
+
+        await submitUserOperation(userOp);
     } catch (error) {
         console.error("Error processing event:", error);
     }
@@ -60,7 +85,7 @@ async function processEvent(event: ethers.EventLog | ethers.Log) {
 
 async function indexPastEvents(fromBlock: number) {
     console.log(`Indexing past events from block ${fromBlock}`);
-    const events = await contract.queryFilter("KeyServiceActionRequest", fromBlock);
+    const events = await contract.queryFilter("SignetActionRequest", fromBlock);
     for (const event of events) {
         await processEvent(event);
     }
@@ -70,10 +95,114 @@ async function indexPastEvents(fromBlock: number) {
 async function startListening(fromBlock: number) {
     await indexPastEvents(fromBlock);
 
-    contract.on("KeyServiceActionRequest", (sender, userOp, event) => processEvent(event));
-    console.log("Listening for new KeyServiceActionRequest events...");
+    contract.on("SignetActionRequest", (sender, userOp, event) => processEvent(event));
+    console.log("Listening for new SignetActionRequest events...");
 }
 
 // Usage
 const startBlockNumber = 123456; // Replace with your desired starting block number
 startListening(startBlockNumber);
+
+
+// I need to: 
+// 1. make sure that the txn is coming from a valid wallet and factory
+// 2. create routes to CRUD factories
+// 3. create routes to CRUD executed txns on destination chains
+// 4. add chain_id for origin chain in current CRUD Routes
+// 5. ensure that factory address and/or client_id is stored with destination txns
+
+
+// function _validatePaymasterUserOp(
+//     UserOperation calldata userOp,
+//     bytes32,
+//     uint256
+// )
+//     internal
+//     view
+//     override
+//     returns (bytes memory context, uint256 validationData)
+// {
+//     context = new bytes(0);
+//     validationData = 0;
+
+//     if (
+//         bytes4(userOp.callData) !=
+//         ISignetSmartWallet.executeWithoutChainIdValidation.selector
+//     ) {
+//         revert SelectorNotAllowed(bytes4(userOp.callData));
+//     }
+
+//     bytes[] memory calls = abi.decode(userOp.callData[4:], (bytes[]));
+
+//     canExecuteViaPaymaster(calls);
+
+//     address factoryAddress = ISignetSmartWallet(userOp.sender)
+//         .deploymentFactoryAddress();
+
+//     bytes[] memory deploymentOwners = ISignetSmartWallet(userOp.sender)
+//         .getDeploymentOwners();
+
+//     uint256 deploymentNonce = ISignetSmartWallet(userOp.sender)
+//         .deploymentNonce();
+
+//     // check for a valid factory
+//     if (!validFactories[factoryAddress]) {
+//         revert InvalidFactory(factoryAddress);
+//     }
+
+//     // call factory.getAddress() to check deterministic account address
+//     address accountAddress = ISignetSmartWalletFactory(factoryAddress)
+//         .getAddress(deploymentOwners, deploymentNonce);
+
+//     // check that account was deployed by factory
+//     if (accountAddress != userOp.sender) {
+//         revert InvalidAccount(userOp.sender);
+//     }
+// }
+
+// function _postOp(
+//     PostOpMode mode,
+//     bytes calldata context,
+//     uint256 actualGasCost
+// ) internal pure override {}
+
+// /// @notice Returns whether `functionSelector` can be paid for by the paymaster.
+// ///
+// /// @param functionSelector The function selector to check.
+// ////
+// /// @return `true` is the function selector is allowed by paymaster, else `false`.
+// function isValidFunction(
+//     bytes4 functionSelector
+// ) public pure returns (bool) {
+//     if (
+//         functionSelector == MultiOwnable.addOwnerPublicKey.selector ||
+//         functionSelector == MultiOwnable.addOwnerAddress.selector ||
+//         functionSelector == MultiOwnable.removeOwnerAtIndex.selector ||
+//         functionSelector == MultiOwnable.removeLastOwner.selector ||
+//         functionSelector == UUPSUpgradeable.upgradeToAndCall.selector
+//     ) {
+//         return true;
+//     }
+//     return false;
+// }
+
+// /// @notice Executes `calls` on this account (i.e. self call).
+// ///
+// /// @dev Can only be called by the Entrypoint.
+// /// @dev Reverts if the given call is not authorized to skip the chain ID validtion.
+// /// @dev `validateUserOp()` will recompute the `userOpHash` without the chain ID before validating
+// ///      it if the `UserOperation.calldata` is calling this function. This allows certain UserOperations
+// ///      to be replayed for all accounts sharing the same address across chains. E.g. This may be
+// ///      useful for syncing owner changes.
+// ///
+// /// @param calls An array of calldata to use for separate self calls.
+// function canExecuteViaPaymaster(bytes[] memory calls) public pure {
+//     for (uint256 i; i < calls.length; i++) {
+//         bytes memory call = calls[i];
+//         bytes4 selector = bytes4(call);
+//         if (!isValidFunction(selector)) {
+//             revert SelectorNotAllowed(selector);
+//         }
+//     }
+// }
+// }
