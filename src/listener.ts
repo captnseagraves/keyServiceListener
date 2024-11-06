@@ -16,20 +16,22 @@ const provider = new ethers.AlchemyProvider("optimism-sepolia", ALCHEMY_PROJECT_
 const pgp = pgPromise();
 const db = pgp(process.env.DATABASE_URL!);
 
-const contractAddress = "0x4DE3Fbb6dF50A7e6dBEEF948dFFC1E38bECeB72C";
+const signetEmitterContractAddress = "0x4DE3Fbb6dF50A7e6dBEEF948dFFC1E38bECeB72C";
 const abi = [
     "event SignetActionRequest(address indexed sender, (address sender, uint256 nonce, bytes initCode, bytes callData, uint256 callGasLimit, uint256 verificationGasLimit, uint256 preVerificationGas, uint256 maxFeePerGas, uint256 maxPriorityFeePerGas, bytes paymasterAndData, bytes signature) userOp)"
 ];
 
-const contract = new ethers.Contract(contractAddress, abi, provider);
+const signetEmitterContract = new ethers.Contract(signetEmitterContractAddress, abi, provider);
 
 const ISignetSmartWalletABI = [
-    "function deploymentFactoryAddress() view returns (address)"
+    "function deploymentFactoryAddress() view returns (address)",
+    "function getDeploymentOwners() view returns (address[])",
+    "function deploymentNonce() view returns (uint256)"
 ];
 
-let validFactories: Set<string> = new Set([
-    "0x6813Eb9362372EEF6200f3b1dbC3f819671cBA69" // Initial valid factory address
-]);
+const ISignetSmartWalletFactoryABI = [
+    "function getAddress(address[] owners, uint256 nonce) view returns (address)"
+];
 
 async function processEvent(event: ethers.EventLog | ethers.Log) {
     let sender: string;
@@ -53,6 +55,10 @@ async function processEvent(event: ethers.EventLog | ethers.Log) {
     // Create a contract instance for the ISignetSmartWallet
     const walletContract = new ethers.Contract(sender, ISignetSmartWalletABI, provider);
     let factoryAddress: string;
+    let owners: string[];
+    let nonce: number;
+    let accountAddress: string;
+
 
     try {
         // Call the deploymentFactoryAddress function
@@ -61,6 +67,49 @@ async function processEvent(event: ethers.EventLog | ethers.Log) {
         console.error(`Error fetching deployment factory address for ${sender}:`, error);
         throw error;
     }
+
+    try {
+        owners = await walletContract.getDeploymentOwners();
+    } catch (error) {
+        console.error(`Error fetching deployment owners for ${sender}:`, error);
+        throw error;
+    }
+
+    try {
+        nonce = await walletContract.deploymentNonce();
+    } catch (error) {
+        console.error(`Error fetching deployment nonce for ${sender}:`, error);
+        throw error;
+    }
+
+    console.log("factoryAddress", factoryAddress);
+    console.log("owners", owners);
+    console.log("nonce", nonce);
+
+
+    const factoryContract = new ethers.Contract(factoryAddress, ISignetSmartWalletFactoryABI, provider);
+
+    const getAddressFunction = factoryContract.getFunction('getAddress');
+
+    const result = await getAddressFunction(Array.from(owners), nonce);
+
+
+    console.log('Account address:', result);
+
+    console.log("factoryContract.functions", factoryContract.getFunction('getAddress'));
+    console.log("factoryContract", factoryContract);
+    console.log("Wallet Contract", walletContract.interface.fragments);
+
+
+    // try {
+    //     accountAddress = await factoryContract.interface.fragments(owners, nonce);
+    // } catch (error) {
+    //     console.error(`Error fetching account address for ${sender}:`, error);
+    //     throw error;
+    // }
+
+    // console.log("accountAddress", accountAddress);
+
 
 
     // Convert BigInt values to strings
@@ -85,7 +134,7 @@ async function processEvent(event: ethers.EventLog | ethers.Log) {
 
 async function indexPastEvents(fromBlock: number) {
     console.log(`Indexing past events from block ${fromBlock}`);
-    const events = await contract.queryFilter("SignetActionRequest", fromBlock);
+    const events = await signetEmitterContract.queryFilter("SignetActionRequest", fromBlock);
     for (const event of events) {
         await processEvent(event);
     }
@@ -95,7 +144,7 @@ async function indexPastEvents(fromBlock: number) {
 async function startListening(fromBlock: number) {
     await indexPastEvents(fromBlock);
 
-    contract.on("SignetActionRequest", (sender, userOp, event) => processEvent(event));
+    signetEmitterContract.on("SignetActionRequest", (sender, userOp, event) => processEvent(event));
     console.log("Listening for new SignetActionRequest events...");
 }
 
@@ -104,12 +153,15 @@ const startBlockNumber = 123456; // Replace with your desired starting block num
 startListening(startBlockNumber);
 
 
-// I need to: 
+
+
 // 1. make sure that the txn is coming from a valid wallet and factory
 // 2. create routes to CRUD factories
 // 3. create routes to CRUD executed txns on destination chains
 // 4. add chain_id for origin chain in current CRUD Routes
 // 5. ensure that factory address and/or client_id is stored with destination txns
+// 6. ensure valid way to mark whether client is paying via credit card or on chain via paymaster
+//      if via paymaster there needs to be correct fee in userOp
 
 
 // function _validatePaymasterUserOp(
