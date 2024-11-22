@@ -10,7 +10,8 @@ if (!ALCHEMY_PROJECT_ID) {
     throw new Error("ALCHEMY_PROJECT_ID is not set in the environment");
 }
 
-const provider = new ethers.AlchemyProvider("optimism-sepolia", ALCHEMY_PROJECT_ID);
+const chain_id = "optimism-sepolia";
+const provider = new ethers.AlchemyProvider(chain_id, ALCHEMY_PROJECT_ID);
 
 // Database setup
 const pgp = pgPromise();
@@ -55,7 +56,7 @@ async function processEvent(event: ethers.EventLog | ethers.Log) {
     // Create a contract instance for the ISignetSmartWallet
     const walletContract = new ethers.Contract(sender, ISignetSmartWalletABI, provider);
     let factoryAddress: string;
-    let owners: string[];
+    let owners: any;
     let nonce: number;
     let accountAddress: string;
 
@@ -84,31 +85,28 @@ async function processEvent(event: ethers.EventLog | ethers.Log) {
 
     console.log("factoryAddress", factoryAddress);
     console.log("owners", owners);
-    console.log("nonce", nonce);
+    console.log("nonce", Number(nonce));
 
 
     const factoryContract = new ethers.Contract(factoryAddress, ISignetSmartWalletFactoryABI, provider);
 
+
     const getAddressFunction = factoryContract.getFunction('getAddress');
 
-    const result = await getAddressFunction(Array.from(owners), nonce);
+    try {
+        const result = await getAddressFunction(['0xC1200B5147ba1a0348b8462D00d237016945Dfff'], Number(nonce));
+        accountAddress = result;
+        console.log('Account address:', accountAddress);
+    } catch (error) {
+        accountAddress = "null";
+        console.error('getAddress call reverted:', error);
+        // Continue execution without the account address
+    }
+
+    console.log('Account address:', accountAddress);
 
 
-    console.log('Account address:', result);
-
-    console.log("factoryContract.functions", factoryContract.getFunction('getAddress'));
-    console.log("factoryContract", factoryContract);
-    console.log("Wallet Contract", walletContract.interface.fragments);
-
-
-    // try {
-    //     accountAddress = await factoryContract.interface.fragments(owners, nonce);
-    // } catch (error) {
-    //     console.error(`Error fetching account address for ${sender}:`, error);
-    //     throw error;
-    // }
-
-    // console.log("accountAddress", accountAddress);
+    console.log("factoryContract", factoryContract.getFunction('getAddress'));
 
 
 
@@ -157,9 +155,13 @@ startListening(startBlockNumber);
 
 // 1. make sure that the txn is coming from a valid wallet and factory
 // 2. create routes to CRUD factories
+// 3. create local db table for key_service_factories
+// 3. Create listeners for each supported destination chain
 // 3. create routes to CRUD executed txns on destination chains
 // 4. add chain_id for origin chain in current CRUD Routes
 // 5. ensure that factory address and/or client_id is stored with destination txns
+
+// v0.2
 // 6. ensure valid way to mark whether client is paying via credit card or on chain via paymaster
 //      if via paymaster there needs to be correct fee in userOp
 

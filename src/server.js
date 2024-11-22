@@ -13,11 +13,13 @@ const port = process.env.PORT || 3000;
 const pgp = (0, pg_promise_1.default)();
 const db = pgp(process.env.DATABASE_URL);
 app.use(express_1.default.json());
+/********** ORIGIN EVENTS ROUTES **********/
+// TODO: Ensure these routes can only be called by the listener. Ports locked down etc. 
 // Create
-app.post('/events', async (req, res) => {
+app.post('/originEvents', async (req, res) => {
     try {
         const { sender, user_op, transaction_hash, block_number } = req.body;
-        const result = await db.one('INSERT INTO key_service_events(sender, user_op, transaction_hash, block_number) VALUES($1, $2, $3, $4) RETURNING id', [sender, user_op, transaction_hash, block_number]);
+        const result = await db.one('INSERT INTO key_service_originEvents(sender, user_op, transaction_hash, block_number) VALUES($1, $2, $3, $4) RETURNING id', [sender, user_op, transaction_hash, block_number]);
         res.json(result);
     }
     catch (error) {
@@ -30,10 +32,10 @@ app.post('/events', async (req, res) => {
     }
 });
 // Read
-app.get('/events', async (req, res) => {
+app.get('/originEvents', async (req, res) => {
     try {
-        const events = await db.any('SELECT * FROM key_service_events');
-        res.json(events);
+        const originEvents = await db.any('SELECT * FROM key_service_originEvents');
+        res.json(originEvents);
     }
     catch (error) {
         if (error instanceof Error) {
@@ -44,9 +46,9 @@ app.get('/events', async (req, res) => {
         }
     }
 });
-app.get('/events/:id', async (req, res) => {
+app.get('/originEvents/:id', async (req, res) => {
     try {
-        const event = await db.one('SELECT * FROM key_service_events WHERE id = $1', req.params.id);
+        const event = await db.one('SELECT * FROM key_service_originEvents WHERE id = $1', req.params.id);
         res.json(event);
     }
     catch (error) {
@@ -54,10 +56,10 @@ app.get('/events/:id', async (req, res) => {
     }
 });
 // Update
-app.put('/events/:id', async (req, res) => {
+app.put('/originEvents/:id', async (req, res) => {
     try {
         const { sender, user_op, transaction_hash, block_number } = req.body;
-        const result = await db.one('UPDATE key_service_events SET sender=$1, user_op=$2, transaction_hash=$3, block_number=$4 WHERE id=$5 RETURNING *', [sender, user_op, transaction_hash, block_number, req.params.id]);
+        const result = await db.one('UPDATE key_service_originEvents SET sender=$1, user_op=$2, transaction_hash=$3, block_number=$4 WHERE id=$5 RETURNING *', [sender, user_op, transaction_hash, block_number, req.params.id]);
         res.json(result);
     }
     catch (error) {
@@ -70,10 +72,96 @@ app.put('/events/:id', async (req, res) => {
     }
 });
 // Delete
-app.delete('/events/:id', async (req, res) => {
+app.delete('/originEvents/:id', async (req, res) => {
     try {
-        await db.none('DELETE FROM key_service_events WHERE id = $1', req.params.id);
+        await db.none('DELETE FROM key_service_originEvents WHERE id = $1', req.params.id);
         res.json({ message: 'Event deleted successfully' });
+    }
+    catch (error) {
+        if (error instanceof Error) {
+            res.status(500).json({ error: error.message });
+        }
+        else {
+            res.status(500).json({ error: 'An unknown error occurred' });
+        }
+    }
+});
+/********** FACTORY ROUTES **********/
+// TODO: Ensure these routes are protected and only callable by a specific key
+app.post('/factories', async (req, res) => {
+    try {
+        const { factoryAddress } = req.body;
+        const result = await db.one('INSERT INTO key_service_factories(factoryAddress) VALUES($1, $2, $3, $4) RETURNING id', [factoryAddress]);
+        res.json(result);
+    }
+    catch (error) {
+        if (error instanceof Error) {
+            res.status(500).json({ error: error.message });
+        }
+        else {
+            res.status(500).json({ error: 'An unknown error occurred' });
+        }
+    }
+});
+// Read
+app.get('/factories', async (req, res) => {
+    try {
+        const factories = await db.any('SELECT * FROM key_service_factories');
+        res.json(factories);
+    }
+    catch (error) {
+        if (error instanceof Error) {
+            res.status(500).json({ error: error.message });
+        }
+        else {
+            res.status(500).json({ error: 'An unknown error occurred' });
+        }
+    }
+});
+app.get('/factories/:id', async (req, res) => {
+    try {
+        const event = await db.one('SELECT * FROM key_service_factories WHERE id = $1', req.params.id);
+        res.json(event);
+    }
+    catch (error) {
+        res.status(404).json({ error: 'Event not found' });
+    }
+});
+// Delete
+app.delete('/factories/:id', async (req, res) => {
+    try {
+        await db.none('DELETE FROM key_service_factories WHERE id = $1', req.params.id);
+        res.json({ message: 'Event deleted successfully' });
+    }
+    catch (error) {
+        if (error instanceof Error) {
+            res.status(500).json({ error: error.message });
+        }
+        else {
+            res.status(500).json({ error: 'An unknown error occurred' });
+        }
+    }
+});
+app.post('/originEvents', async (req, res) => {
+    try {
+        const { sender, user_op, transaction_hash, block_number } = req.body;
+        const result = await db.one('INSERT INTO key_service_originEvents(sender, user_op, transaction_hash, block_number) VALUES($1, $2, $3, $4) RETURNING id', [sender, user_op, transaction_hash, block_number]);
+        res.json(result);
+    }
+    catch (error) {
+        if (error instanceof Error) {
+            res.status(500).json({ error: error.message });
+        }
+        else {
+            res.status(500).json({ error: 'An unknown error occurred' });
+        }
+    }
+});
+// Read
+app.get('/originEvents', async (req, res) => {
+    try {
+        const originEvents = await db.any('SELECT * FROM key_service_originEvents');
+        res.json(originEvents);
     }
     catch (error) {
         if (error instanceof Error) {

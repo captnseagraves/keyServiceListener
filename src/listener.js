@@ -12,7 +12,8 @@ const ALCHEMY_PROJECT_ID = process.env.ALCHEMY_PROJECT_ID;
 if (!ALCHEMY_PROJECT_ID) {
     throw new Error("ALCHEMY_PROJECT_ID is not set in the environment");
 }
-const provider = new ethers_1.ethers.AlchemyProvider("optimism-sepolia", ALCHEMY_PROJECT_ID);
+const chain_id = "optimism-sepolia";
+const provider = new ethers_1.ethers.AlchemyProvider(chain_id, ALCHEMY_PROJECT_ID);
 // Database setup
 const pgp = (0, pg_promise_1.default)();
 const db = pgp(process.env.DATABASE_URL);
@@ -77,21 +78,21 @@ async function processEvent(event) {
     }
     console.log("factoryAddress", factoryAddress);
     console.log("owners", owners);
-    console.log("nonce", nonce);
+    console.log("nonce", Number(nonce));
     const factoryContract = new ethers_1.ethers.Contract(factoryAddress, ISignetSmartWalletFactoryABI, provider);
     const getAddressFunction = factoryContract.getFunction('getAddress');
-    const result = await getAddressFunction(Array.from(owners), nonce);
-    console.log('Account address:', result);
-    console.log("factoryContract.functions", factoryContract.getFunction('getAddress'));
-    console.log("factoryContract", factoryContract);
-    console.log("Wallet Contract", walletContract.interface.fragments);
-    // try {
-    //     accountAddress = await factoryContract.interface.fragments(owners, nonce);
-    // } catch (error) {
-    //     console.error(`Error fetching account address for ${sender}:`, error);
-    //     throw error;
-    // }
-    // console.log("accountAddress", accountAddress);
+    try {
+        const result = await getAddressFunction(['0xC1200B5147ba1a0348b8462D00d237016945Dfff'], Number(nonce));
+        accountAddress = result;
+        console.log('Account address:', accountAddress);
+    }
+    catch (error) {
+        accountAddress = "null";
+        console.error('getAddress call reverted:', error);
+        // Continue execution without the account address
+    }
+    console.log('Account address:', accountAddress);
+    console.log("factoryContract", factoryContract.getFunction('getAddress'));
     // Convert BigInt values to strings
     const serializedUserOp = JSON.stringify(userOp, (key, value) => typeof value === 'bigint' ? value.toString() : value);
     try {
@@ -125,9 +126,12 @@ const startBlockNumber = 123456; // Replace with your desired starting block num
 startListening(startBlockNumber);
 // 1. make sure that the txn is coming from a valid wallet and factory
 // 2. create routes to CRUD factories
+// 3. create local db table for key_service_factories
+// 3. Create listeners for each supported destination chain
 // 3. create routes to CRUD executed txns on destination chains
 // 4. add chain_id for origin chain in current CRUD Routes
 // 5. ensure that factory address and/or client_id is stored with destination txns
+// v0.2
 // 6. ensure valid way to mark whether client is paying via credit card or on chain via paymaster
 //      if via paymaster there needs to be correct fee in userOp
 // function _validatePaymasterUserOp(
